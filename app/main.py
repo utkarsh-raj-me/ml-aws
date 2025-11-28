@@ -89,6 +89,19 @@ def update_job(job_id: str, **kwargs):
         jobs[job_id].update(kwargs)
         jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
 
+def get_model_safe(model_id: str) -> Optional[Dict[str, Any]]:
+    """Get model from memory or load from storage"""
+    if model_id in trained_models:
+        return trained_models[model_id]
+    
+    # Try loading from storage
+    model_data = storage.load_model(model_id)
+    if model_data:
+        trained_models[model_id] = model_data
+        return model_data
+    
+    return None
+
 
 # ============== Background Tasks ==============
 
@@ -161,7 +174,7 @@ async def health_check():
     return {
         "status": "healthy",
         "datasets_count": len(storage.list_datasets()),
-        "models_count": len(trained_models),
+        "models_count": len(storage.list_models()),
         "active_jobs": len([j for j in jobs.values() if j["status"] == "running"])
     }
 
@@ -274,16 +287,18 @@ async def get_job_status(job_id: str):
 @app.get("/models")
 async def list_models():
     """List all trained models"""
+    # Use storage metadata to list all models, not just loaded ones
+    stored_models = storage.list_models()
     return {
         "models": [
             {
-                "model_id": m["model_id"],
-                "algorithm": m["algorithm"],
-                "target_column": m["target_column"],
-                "metrics": m["metrics"],
-                "created_at": m["created_at"]
+                "model_id": m.get("id"),
+                "algorithm": m.get("algorithm"),
+                "target_column": m.get("target_column"),
+                "metrics": m.get("metrics"),
+                "created_at": m.get("created_at")
             }
-            for m in trained_models.values()
+            for m in stored_models
         ]
     }
 
@@ -291,10 +306,10 @@ async def list_models():
 @app.get("/models/{model_id}")
 async def get_model_info(model_id: str):
     """Get detailed information about a trained model"""
-    if model_id not in trained_models:
+    model_data = get_model_safe(model_id)
+    if not model_data:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    model_data = trained_models[model_id]
     return {
         "model_id": model_data["model_id"],
         "algorithm": model_data["algorithm"],
@@ -308,11 +323,11 @@ async def get_model_info(model_id: str):
 @app.post("/predict")
 async def predict(request: PredictRequest):
     """Make a single prediction"""
-    if request.model_id not in trained_models:
+    model_data = get_model_safe(request.model_id)
+    if not model_data:
         raise HTTPException(status_code=404, detail="Model not found")
     
     try:
-        model_data = trained_models[request.model_id]
         prediction, probability = ml_pipeline.predict(
             model_data["model"],
             model_data["preprocessor_info"],
@@ -333,11 +348,11 @@ async def predict(request: PredictRequest):
 @app.post("/predict/batch")
 async def batch_predict(request: BatchPredictRequest):
     """Make batch predictions"""
-    if request.model_id not in trained_models:
+    model_data = get_model_safe(request.model_id)
+    if not model_data:
         raise HTTPException(status_code=404, detail="Model not found")
     
     try:
-        model_data = trained_models[request.model_id]
         results = []
         
         for record in request.data:
