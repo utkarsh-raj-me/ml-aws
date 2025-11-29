@@ -23,6 +23,7 @@ class SageMakerManager:
         self.s3_bucket = os.environ.get('S3_BUCKET')
         self.role_arn = os.environ.get('SAGEMAKER_ROLE')
         self.subnets = os.environ.get('VPC_SUBNETS', '').split(',')
+        self.security_group = os.environ.get('SECURITY_GROUP')
         
         # Initialize AWS clients
         self.s3_client = boto3.client('s3', region_name=self.region)
@@ -95,13 +96,15 @@ class SageMakerManager:
                 'S3OutputPath': output_path
             },
             'ResourceConfig': {
-                'InstanceType': 'ml.m5.large',
+                'InstanceType': 'ml.c5.xlarge',
                 'InstanceCount': 1,
                 'VolumeSizeInGB': 10
             },
             'StoppingCondition': {
-                'MaxRuntimeInSeconds': 3600
-            },
+    'MaxRuntimeInSeconds': 3600,
+    'MaxWaitTimeInSeconds': 7200
+},
+'EnableManagedSpotTraining': True,
             'HyperParameters': {
                 'target_column': target_column,
                 'algorithm': algorithm,
@@ -113,11 +116,10 @@ class SageMakerManager:
         }
         
         # Add VPC config if subnets are specified
-        if self.subnets and self.subnets[0]:
-            # Create a security group for SageMaker
+        if self.subnets and self.subnets[0] and self.security_group:
             training_params['VpcConfig'] = {
                 'Subnets': self.subnets,
-                'SecurityGroupIds': self._get_or_create_security_group()
+                'SecurityGroupIds': [self.security_group]
             }
         
         try:

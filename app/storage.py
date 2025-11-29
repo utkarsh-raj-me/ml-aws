@@ -205,6 +205,13 @@ class StorageManager:
     def list_datasets(self) -> List[Dict[str, Any]]:
         """List all datasets"""
         return list(self.metadata["datasets"].values())
+
+    def get_dataset_path(self, dataset_id: str) -> Optional[str]:
+        """Get the local file path for a dataset"""
+        file_path = os.path.join(self.datasets_path, f"{dataset_id}.csv")
+        if os.path.exists(file_path):
+            return file_path
+        return None
     
     # ============== Model Operations ==============
     
